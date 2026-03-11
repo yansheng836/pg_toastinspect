@@ -1,0 +1,4 @@
+# pg_toastinspect.control
+comment = 'inspect the contents of pg_toast info at a low level'
+default_version = '1.0'
+relocatable = true
