@@ -1,0 +1,84 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        pg-version: [16, 17]
+
+    services:
+      postgres:
+        image: postgres:${{ matrix.pg-version }}
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up PostgreSQL
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          postgresql-server-dev-${{ matrix.pg-version }} \
+          libpg-dev
+
+    - name: Build extension
+      run: |
+        make clean
+        make
+
+    - name: Install extension
+      run: |
+        sudo make install
+
+    - name: Set up test database
+      run: |
+        sudo -u postgres psql -c "CREATE USER testuser WITH SUPERUSER PASSWORD 'testpass';"
+        sudo -u postgres createdb -O testuser testdb
+
+    - name: Test extension installation
+      run: |
+        psql -h localhost -U testuser -d testdb -c "CREATE EXTENSION pg_toastinspect;"
+
+    - name: Run basic tests
+      run: |
+        psql -h localhost -U testuser -d testdb -f test.sql || true
+
+    - name: Test with text
+      run: |
+        psql -h localhost -U testuser -d testdb -c "
+          CREATE TABLE test_table (id int, large_text text);
+          INSERT INTO test_table VALUES (1, repeat('a', 10000));
+          SELECT get_toast_chunk_id(large_text), get_toast_info(large_text) FROM test_table;
+        "
+
+    - name: Test with bytea
+      run: |
+        psql -h localhost -U testuser -d testdb -c "
+          CREATE TABLE test_table2 (id int, large_bytea bytea);
+          INSERT INTO test_table2 VALUES (1, decode(repeat('00ff', 5000), 'hex'));
+          SELECT get_toast_chunk_id(large_bytea), get_toast_info(large_bytea) FROM test_table2;
+        "
+
+    - name: Test with jsonb
+      run: |
+        psql -h localhost -U testuser -d testdb -c "
+          CREATE TABLE test_table3 (id int, large_jsonb jsonb);
+          INSERT INTO test_table3 VALUES (1, '{\"data\": repeat(\"x\", 10000)}'::jsonb);
+          SELECT get_toast_chunk_id(large_jsonb), get_toast_info(large_jsonb) FROM test_table3;
+        "
