@@ -1,12 +1,12 @@
 -- pg_toastinspect--1.0.sql
 
--- 简单版：只返回 chunk_id
+-- Simple version: returns only chunk_id
 CREATE FUNCTION get_toast_chunk_id(val text)
 RETURNS oid
 AS '$libdir/pg_toastinspect', 'get_toast_chunk_id'
 LANGUAGE C STRICT;
 
--- 也支持 bytea / jsonb 等类型
+-- Also supports bytea / jsonb and other types
 CREATE FUNCTION get_toast_chunk_id(val bytea)
 RETURNS oid
 AS '$libdir/pg_toastinspect', 'get_toast_chunk_id'
@@ -18,7 +18,7 @@ AS '$libdir/pg_toastinspect', 'get_toast_chunk_id'
 LANGUAGE C STRICT;
 
 
--- 完整版：返回所有 toast 指针信息
+-- Complete version: returns all toast pointer information
 CREATE TYPE toast_pointer_info AS (
     raw_size        int4,
     ext_size        int4,

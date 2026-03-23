@@ -8,8 +8,8 @@
 PG_MODULE_MAGIC;
 
 /*
- * 直接 memcpy 替代 VARATT_EXTERNAL_GET_POINTER
- * 避免不同 PG 版本的符号兼容问题
+ * Use memcpy instead of VARATT_EXTERNAL_GET_POINTER
+ * to avoid symbol compatibility issues across different PostgreSQL versions
  */
 static inline void
 get_toast_ptr(struct varlena *val, varatt_external *out)
@@ -20,7 +20,7 @@ get_toast_ptr(struct varlena *val, varatt_external *out)
 
 /* ------------------------------------------------
  * get_toast_chunk_id(anycolumn)
- * 返回 chunk_id，未 toast 则返回 NULL
+ * Returns chunk_id, returns NULL if not toasted
  * ------------------------------------------------ */
 PG_FUNCTION_INFO_V1(get_toast_chunk_id);
 Datum
@@ -41,7 +41,7 @@ get_toast_chunk_id(PG_FUNCTION_ARGS)
 
 /* ------------------------------------------------
  * get_toast_info(anycolumn)
- * 返回完整 toast 指针信息
+ * Returns complete toast pointer information
  * ------------------------------------------------ */
 PG_FUNCTION_INFO_V1(get_toast_info);
 Datum
@@ -70,10 +70,10 @@ get_toast_info(PG_FUNCTION_ARGS)
         nulls[1] = false;
         nulls[2] = false;
         nulls[3] = false;
-        values[0] = Int32GetDatum(toast_ptr.va_rawsize);       /* 原始大小       */
-        values[1] = Int32GetDatum(toast_ptr.va_extinfo);       /* toast存储大小  */
-        values[2] = ObjectIdGetDatum(toast_ptr.va_valueid);    /* chunk_id      */
-        values[3] = ObjectIdGetDatum(toast_ptr.va_toastrelid); /* toast表OID    */
+        values[0] = Int32GetDatum(toast_ptr.va_rawsize);       /* Original size          */
+        values[1] = Int32GetDatum(toast_ptr.va_extinfo);       /* TOAST storage size     */
+        values[2] = ObjectIdGetDatum(toast_ptr.va_valueid);    /* chunk_id               */
+        values[3] = ObjectIdGetDatum(toast_ptr.va_toastrelid); /* TOAST table OID        */
     }
     else
     {
