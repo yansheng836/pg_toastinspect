@@ -2,6 +2,8 @@
 
 A PostgreSQL extension for inspecting TOAST (The Oversized-Attribute Storage Technique) information at a low level.
 
+![pg_toastinspect by gemini](README.assets/pg_toastinspect.png)
+
 ## Overview
 
 pg_toastinspect provides functions to access TOAST metadata for large values stored in PostgreSQL. It allows you to retrieve chunk IDs and detailed TOAST pointer information without having to examine the internal data structures directly.
