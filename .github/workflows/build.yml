@@ -12,80 +12,92 @@ jobs:
 
     strategy:
       matrix:
-        pg-version: [14, 15, 16]
-
-    services:
-      postgres:
-        image: postgres:${{ matrix.pg-version }}
-        env:
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+        pg-version: [14, 15, 16, 17]
 
     steps:
     - uses: actions/checkout@v4
 
-    - name: Set up PostgreSQL
+    - name: Build and test in PostgreSQL container
       run: |
-        sudo apt-get update
-        sudo apt-get install -y gnupg2 wget
+        # Create a temporary directory for our work
+        TEMP_DIR=$(mktemp -d)
 
-        # Add PostgreSQL repository
-        echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
-        wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+        # Copy our extension files to the temporary directory
+        cp -r . "$TEMP_DIR/"
 
-        sudo apt-get update
-        sudo apt-get install -y \
-          postgresql-server-dev-${{ matrix.pg-version }} \
-          libpq-dev
+        # Run PostgreSQL container and build/test extension inside
+        docker run --rm -d \
+          --name pg_toastinspect_test \
+          -e POSTGRES_PASSWORD=postgres \
+          -v "$TEMP_DIR":/pg_toastinspect \
+          postgres:${{ matrix.pg-version }}
 
-    - name: Build extension
-      run: |
-        make clean
-        make
+        # Wait for PostgreSQL to be ready
+        echo "Waiting for PostgreSQL to be ready..."
+        for i in {1..30}; do
+          if docker exec pg_toastinspect_test pg_isready -U postgres; then
+            echo "PostgreSQL is ready!"
+            break
+          fi
+          echo "PostgreSQL not ready yet... waiting 1 second"
+          sleep 1
+        done
 
-    - name: Install extension
-      run: |
-        sudo make install
+        # Install build dependencies
+        echo "Installing build dependencies..."
+        docker exec pg_toastinspect_test apt-get update
+        docker exec pg_toastinspect_test apt-get install -y build-essential git
 
-    - name: Set up test database
-      run: |
-        sudo -u postgres psql -c "CREATE USER testuser WITH SUPERUSER PASSWORD 'testpass';"
-        sudo -u postgres createdb -O testuser testdb
+        # Build the extension
+        echo "Building extension..."
+        docker exec pg_toastinspect_test bash -c "cd /pg_toastinspect && make clean && make"
 
-    - name: Test extension installation
-      run: |
-        psql -h localhost -U testuser -d testdb -c "CREATE EXTENSION pg_toastinspect;"
+        # Install the extension
+        echo "Installing extension..."
+        docker exec pg_toastinspect_test bash -c "cd /pg_toastinspect && make install"
 
-    - name: Run basic tests
-      run: |
-        psql -h localhost -U testuser -d testdb -f test.sql || true
+        # Create test user and database
+        echo "Creating test user and database..."
+        docker exec pg_toastinspect_test psql -U postgres -c "CREATE USER testuser WITH SUPERUSER PASSWORD 'testpass';"
+        docker exec pg_toastinspect_test createdb -U postgres -O testuser testdb
 
-    - name: Test with text
-      run: |
-        psql -h localhost -U testuser -d testdb -c "
+        # Test extension installation
+        echo "Testing extension installation..."
+        docker exec pg_toastinspect_test psql -U testuser -d testdb -h localhost -c "CREATE EXTENSION pg_toastinspect;"
+
+        # Run basic tests
+        echo "Running basic tests..."
+        docker exec pg_toastinspect_test psql -U testuser -d testdb -h localhost -f /pg_toastinspect/test.sql || true
+
+        # Test with text data type
+        echo "Testing with text..."
+        docker exec pg_toastinspect_test psql -U testuser -d testdb -h localhost -c "
           CREATE TABLE test_table (id int, large_text text);
           INSERT INTO test_table VALUES (1, repeat('a', 10000));
           SELECT get_toast_chunk_id(large_text), get_toast_info(large_text) FROM test_table;
         "
 
-    - name: Test with bytea
-      run: |
-        psql -h localhost -U testuser -d testdb -c "
+        # Test with bytea data type
+        echo "Testing with bytea..."
+        docker exec pg_toastinspect_test psql -U testuser -d testdb -h localhost -c "
           CREATE TABLE test_table2 (id int, large_bytea bytea);
           INSERT INTO test_table2 VALUES (1, decode(repeat('00ff', 5000), 'hex'));
           SELECT get_toast_chunk_id(large_bytea), get_toast_info(large_bytea) FROM test_table2;
         "
 
-    - name: Test with jsonb
-      run: |
-        psql -h localhost -U testuser -d testdb -c "
+        # Test with jsonb data type
+        echo "Testing with jsonb..."
+        docker exec pg_toastinspect_test psql -U testuser -d testdb -h localhost -c "
           CREATE TABLE test_table3 (id int, large_jsonb jsonb);
-          INSERT INTO test_table3 VALUES (1, '{\"data\": repeat(\"x\", 10000)}'::jsonb);
+          INSERT INTO test_table3 VALUES (1, jsonb_build_object('data', repeat('x', 10000)));
           SELECT get_toast_chunk_id(large_jsonb), get_toast_info(large_jsonb) FROM test_table3;
         "
+
+        # Stop and remove the container
+        echo "Cleaning up..."
+        docker stop pg_toastinspect_test
+
+        # Cleanup temporary directory
+        rm -rf "$TEMP_DIR"
+
+        echo "All tests completed successfully!"
